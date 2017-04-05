@@ -319,6 +319,49 @@ class RxTests extends FunSuite {
     assert(rx1.subscribers.isEmpty && rx2.subscribers.isEmpty)
   }
 
+  test("toVar list replication") {
+    val rx1: Var[Int] = Var(0)
+    val rx2: Var[Int] = rx1.impure.toVar[Int]
+    val listInput = List(1,2,3)
+    var listOutput: List[Int] = Nil
+    val listOutputExpected = List(0,1,2,3)
+    val cc2 = rx2.impure.foreach(n => listOutput = listOutput :+ n)
+    listInput.foreach(n => rx1 := n)
+    assert(listOutput === listOutputExpected)
+    assert(rx1.impure.value == listOutputExpected.last)
+    assert(rx2.impure.value === rx1.impure.value)
+    val directAdd = listOutputExpected.last + 1
+    rx2 := directAdd
+    assert(rx2.impure.value === rx1.impure.value + 1)
+    cc2.cancel
+    assert(rx1.subscribers.isEmpty && rx2.subscribers.isEmpty)
+  }
+
+  test("toVar updated first") {
+    val aa: Var[Int] = Var(1)
+    val bb: Var[Int] = aa.impure.toVar
+    val outputExpected = List(1,2,3)
+    var output: List[Int] = Nil
+    val ccb = bb.impure.foreach(n => output = output :+ n)
+    bb := 3
+    aa := 2
+    ccb.cancel
+    assert(aa.subscribers.isEmpty && bb.subscribers.isEmpty)
+    assert(output == outputExpected)
+  }
+  test("toVar updated last") {
+    val aa: Var[Int] = Var(1)
+    val bb: Var[Int] = aa.impure.toVar
+    val outputExpected = List(1,2,3)
+    var output: List[Int] = Nil
+    val ccb = bb.impure.foreach(n => output = output :+ n)
+    aa := 2
+    bb := 3
+    ccb.cancel
+    assert(aa.subscribers.isEmpty && bb.subscribers.isEmpty)
+    assert(output == outputExpected)
+  }
+
   test("pile printing from README") {
     val rx1 = Var(1)
     val rx2 = Var(2)
@@ -333,7 +376,7 @@ class RxTests extends FunSuite {
     val string = rx3.toString
     assert(
       string.contains("mhtml.RxTests$$Lambda$") || // JVM has unreliable toString
-      string == """
+        string == """
         Merge(
           Map(Var(1), <function1>),
           Collect(
@@ -342,4 +385,5 @@ class RxTests extends FunSuite {
       """.lines.mkString("").filterNot(' '.==)
     )
   }
+
 }

@@ -151,6 +151,26 @@ case class RxImpureOps[+A](self: Rx[A]) extends AnyVal {
    * If you use this in your code, you are probably doing in wrong.
    */
   def foreach(effect: A => Unit): Cancelable = Rx.run(self)(effect)
+
+  /**
+    * Returns a Var with the same subscriptions as the original Rx.
+    * Useful for creating a Var from an Rx that is not a Var.
+    */
+  def toVar[B >: A]: Var[B] = new Var[B](None, register => foreach(register.:=))
+// FIXME: need to understand the internal API better
+//  def toVar[B >: A]: Var[B] = {
+//    val mergedVar: Var[B] = new Var[B](None, _ => Cancelable.empty)
+//    val dummyVar: Var[B] = new Var[B](None, _ => Cancelable.empty)
+//    val c1 = Rx.run(self)(_ => Unit)
+//    self.map(upstreamVal => mergedVar := upstreamVal)
+//    val c2 = Rx.run(dummyVar)(_ => Unit)
+//    dummyVar.map(directVal => mergedVar := directVal)
+//    c1.cancel
+//    c2.cancel
+//    mergedVar
+//  }
+
+
 }
 
 object Rx {
