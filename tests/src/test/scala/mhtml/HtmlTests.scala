@@ -1,6 +1,7 @@
 package mhtml
 
 import org.scalajs.dom
+import org.scalajs.dom.HashChangeEvent
 import org.scalatest.FunSuite
 
 import scala.xml.{Elem, Group}
@@ -432,5 +433,38 @@ class HtmlTests extends FunSuite {
     assert(div.innerHTML == "<div><h1>foobar</h1></div>")
     mutateMe.appendChild(dom.document.createElement("h2"))
     assert(div.innerHTML == "<div><h1>foobar<h2></h2></h1></div>")
+  }
+
+  test("test mapping of dom events to Rx") {
+    val mutateMe = dom.document.createElement("h1")
+    mutateMe.innerHTML = "foobar"
+    val entity = <div mhtml-onmount={ (e: dom.html.Element) => e.appendChild(mutateMe); () }></div>
+    val div = dom.document.createElement("div")
+    mount(div, entity)
+    assert(div.innerHTML == "<div><h1>foobar</h1></div>")
+    mutateMe.appendChild(dom.document.createElement("h2"))
+    assert(div.innerHTML == "<div><h1>foobar<h2></h2></h1></div>")
+
+    lazy val windowHash: Rx[String] = Rx(dom.window.location.hash).merge{
+      println("merging windowHash")
+      var updatedHash = Var(dom.window.location.hash)
+      dom.window.onhashchange = (ev: HashChangeEvent) => {
+        println(s"updating windowHash to ${ dom.window.location.hash}")
+        updatedHash := dom.window.location.hash
+      }
+      updatedHash
+    }
+
+    lazy val currentTodoList: Rx[TodoList] = windowHash.map { hash =>
+      println(s"hash is $hash")
+      todoLists.find(_.hash === hash).getOrElse(all)
+    }
+    lazy val todoListComponents: Rx[Seq[Component[TodoListItemData]]] = {
+      println("creating todoListComponents")
+      currentTodoList.flatMap { current =>
+        current.items.map(_.map(todoListItem))
+      }
+    }
+
   }
 }
