@@ -125,6 +125,27 @@ class RxTests extends FunSuite {
     assert(numbers.isHot)
   }
 
+  test("imitate") {
+    val secondProxy: Rx[Int] = Var(0)
+    val first: Rx[Int] = secondProxy.map(x => x * 10)
+    val secondAux: Var[Int] = Var(1)
+    val second: Rx[Int] = secondAux.merge(first).map(x => x + 1)
+    //val second: Rx[Int] = Rx(1)
+    secondProxy.impure.imitate(second)
+    var firstList: List[Int] = Nil
+    var secondList: List[Int] = Nil
+
+    val cc1 = first.impure.foreach(fv => firstList = firstList :+ fv)
+    val cc2 = second.impure.foreach(sv => secondList = secondList :+ sv)
+
+    secondAux := 2
+    //assert(secondList == List(1, 11, 21))
+    assert(firstList == List(0, 10, 20))
+
+    cc1.cancel
+    cc2.cancel
+  }
+
   test("collect") {
     val numbers: Var[Int] = Var(0)
     val even: Rx[Int] = numbers.collect { case x if x % 2 == 0 => x * 10 } (-1)

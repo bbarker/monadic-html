@@ -1,5 +1,7 @@
 package mhtml
 
+import scala.collection.mutable.ArrayBuffer
+
 /** Reactive value of type `A`. Automatically recalculate on dependency update. */
 sealed trait Rx[+A] { self =>
   import Rx._
@@ -146,14 +148,35 @@ sealed trait Rx[+A] { self =>
 }
 
 case class RxImpureOps[+A](self: Rx[A]) extends AnyVal {
+  import Rx._
+
   /**
    * Applies the side effecting function `f` to each element of this `Rx`.
    * Returns an `Cancelable` which can be used to cancel the subscription.
    * Omitting to canceling subscription can lead to memory leaks.
    *
-   * If you use this in your code, you are probably doing in wrong.
+   * If you use this in your code, you are probably doing it wrong.
    */
   def foreach(effect: A => Unit): Cancelable = Rx.run(self)(effect)
+
+//  @tailrec
+//  private[mhtml] def subscribers[B >: A]: ArrayBuffer[B => Unit] = self match{
+//    case rxv: Var[B] => rxv.subscribers
+//    case rxp: Map[B, _] => rxp.self.impure.subscribers
+//    case rxp: FlatMap[B, _] =>  rxp.self.impure.subscribers
+//    case rxp: Zip[B, _] => rxp.self.impure.subscribers
+//    case rxp: DropRep[B] =>  rxp.self.impure.subscribers
+//    case rxp: Merge[B, _] => rxp.self.impure.subscribers
+//    case rxp: Foldp[B, _] =>  rxp.self.impure.subscribers
+//    case rxp: Collect[B, _] =>  rxp.self.impure.subscribers
+//    case rxp: SampleOn[B, _] => rxp.self.impure.subscribers
+//  }
+
+  def imitate[B >: A](target: Rx[B]): Unit = self match {
+    case asVar: Var[B] => asVar.imitateVar(target)
+    // The imitator should be implemented as a Var, otherwise throw MatchError
+  }
+
 }
 
 object Rx {
@@ -246,7 +269,7 @@ class Var[A](initialValue: Option[A], register: Var[A] => Cancelable) extends Rx
   // Current registration to the feeding `Rx`, canceled whenever nobody's listening.
   private[mhtml] var registration: Cancelable = Cancelable.empty
   // Mutable set of all currently subscribed functions, implementing with an `Array`.
-  private[mhtml] val subscribers = buffer.empty[A => Unit]
+  private[mhtml] val subscribers: ArrayBuffer[A => Unit] = buffer.empty[A => Unit]
 
   private[mhtml] def foreach(s: A => Unit): Cancelable = {
     if (isHot) registration = register(this)
@@ -259,6 +282,10 @@ class Var[A](initialValue: Option[A], register: Var[A] => Cancelable) extends Rx
       subscribers -= s
       if (isHot) registration.cancel
     }
+  }
+
+  private[mhtml] def imitateVar[B >: A](target: Rx[A]): Unit = {
+    Var.getSubscribers(target).foreach { sub => subscribers += sub }
   }
 
   /**
@@ -293,6 +320,8 @@ class Var[A](initialValue: Option[A], register: Var[A] => Cancelable) extends Rx
 }
 
 object Var {
+  import Rx._
+  
   /** Create a `Var` from an initial value. */
   def apply[A](initialValue: A): Var[A] =
     new Var[A](Some(initialValue), _ => Cancelable.empty)
@@ -309,6 +338,19 @@ object Var {
    */
   def create[A](initialValue: A)(register: Var[A] => Cancelable): Var[A] =
     new Var[A](Some(initialValue), register)
+
+  private[mhtml] def getSubscribers[A](rxIn: Rx[A]): ArrayBuffer[A => Unit] = rxIn match{
+    case rxv: Var[A] => rxv.subscribers
+    case rxp: Map[A, _] => getSubscribers(rxp.self)
+    case rxp: FlatMap[A, _] =>  getSubscribers(rxp.self)
+    case rxp: Zip[A, _] => getSubscribers(rxp.self)
+    case rxp: DropRep[A] =>  getSubscribers(rxp.self)
+    case rxp: Merge[A, A] => getSubscribers(rxp.self) ++ getSubscribers(rxp.other)
+    case rxp: Foldp[A, _] =>  getSubscribers(rxp.self)
+    case rxp: Collect[A, _] =>  getSubscribers(rxp.self)
+    case rxp: SampleOn[A, _] => getSubscribers(rxp.self)
+  }
+
 }
 
 /** Action used to cancel `foreach` subscription. */
