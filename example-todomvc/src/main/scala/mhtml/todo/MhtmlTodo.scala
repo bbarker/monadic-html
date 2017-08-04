@@ -35,11 +35,11 @@ final case class RemovalEvent(todo: Todo) extends TodoEvent
 
 
 object MhtmlTodo extends JSApp {
-  val allTodos: Var[List[Todo]] = Var(Nil)
+  val allTodosProxy: Var[List[Todo]] = Var(Nil)
 
-  val all       = TodoList("All", "#/", allTodos)
-  val active    = TodoList("Active", "#/active", allTodos.map(_.filter(!_.completed)))
-  val completed = TodoList("Completed", "#/completed", allTodos.map(_.filter(_.completed)))
+  val all       = TodoList("All", "#/", allTodosProxy)
+  val active    = TodoList("Active", "#/active", allTodosProxy.map(_.filter(!_.completed)))
+  val completed = TodoList("Completed", "#/completed", allTodosProxy.map(_.filter(_.completed)))
   val todoLists = List(all, active, completed)
 
   val windowHash: Rx[String] = Rx(dom.window.location.hash).merge{
@@ -54,25 +54,21 @@ object MhtmlTodo extends JSApp {
     todoLists.find(_.hash === hash).getOrElse(all)
   }
 
-  val todoListComponents: Var[List[TaggedComponent[Option[TodoEvent], Todo]]] = Var(Nil)
-  val todoListComponentsRunner = (currentTodoList |@| todoListComponents map {
-    case (currentTodos: TodoList, currentComps: List[TaggedComponent[Option[TodoEvent], Todo]]) =>
-    currentTodos.items.map(_.map{todo =>
-      val idx = currentComps.indexWhere{cmp => cmp.tag == todo}
-      println(s"comp index is $idx") // DEBUG
-      if (idx >= 0) currentComps(idx)
-      else todoListItem(todo)
-    })
-  }).flatMap(x => x) |@| todoListComponents map{ case (newComps, oldComps) =>
-    println(s"oldcomps = $oldComps;\nnewcomps= $newComps\n${oldComps == newComps}") //DEBUG
-    if (oldComps != newComps) {println("oldcomps != newComps, updating!")  // DEBUG
-      todoListComponents := newComps
-    }
-    <div/>
-  }
-  todoListComponents.impure.foreach(ev => println(s"event from todoListComponents: $ev")) // DEBUG
+  val todoListComponentsProxy: Var[List[TaggedComponent[Option[TodoEvent], Todo]]] = Var(Nil)
+  val todoListComponents: Rx[List[TaggedComponent[Option[TodoEvent], Todo]]] =
+    (currentTodoList |@| todoListComponentsProxy).map {
+      case (currentTodos: TodoList, currentComps: List[TaggedComponent[Option[TodoEvent], Todo]]) =>
+        currentTodos.items.map(_.map{todo =>
+          val idx = currentComps.indexWhere{cmp => cmp.tag == todo}
+          println(s"comp index is $idx") // DEBUG
+          if (idx >= 0) currentComps(idx)
+          else todoListItem(todo)
+        })
+    }.flatten
 
-
+  val todoListComponentsRunner = todoListComponentsProxy
+    .imitate(todoListComponents).map(_ => { <div/> })
+  //todoListComponents.impure.foreach(ev => println(s"event from todoListComponents: $ev")) // DEBUG
 
   val todoListEvent: Rx[Option[TodoEvent]] = {
     val todoListModelsRx: Rx[List[Rx[Option[TodoEvent]]]] =
@@ -111,7 +107,7 @@ object MhtmlTodo extends JSApp {
 
   val footer: Component[Option[RemovalEvent]] = {
     val removeTodo = Var[Option[RemovalEvent]](None)
-    val display = allTodos.map(x => if (x.isEmpty) "none" else "")
+    val display = allTodosProxy.map(x => if (x.isEmpty) "none" else "")
     val visibility =
       completed.items.map(x => if (x.isEmpty) "hidden" else "visible")
     val footerNode =
@@ -131,20 +127,12 @@ object MhtmlTodo extends JSApp {
     Component(footerNode, removeTodo)
   }
 
-  todoListEvent.impure.foreach(ev => println(s"event from todoListEvent: $ev")) // DEBUG
+  //todoListEvent.impure.foreach(ev => println(s"event from todoListEvent: $ev")) // DEBUG
 
   val anyEvent: Rx[Option[TodoEvent]] = todoListEvent |+| footer.model |+| header.model
 
-  val allTodosSplice: Rx[List[Todo]] =
-    anyEvent.foldp(load()) { (last, ev) => updateState(last, ev) }
-  val allTodosRunner = allTodos |@| allTodosSplice map {
-    case (oldTodos, newTodos) =>
-      if (oldTodos ne newTodos) {
-        println("updating all todos")
-        allTodos := newTodos
-      }
-    <div/>
-  }
+  val allTodos: Rx[List[Todo]] = anyEvent.foldp(load()) { (last, ev) => updateState(last, ev) }
+  val allTodosRunner = allTodosProxy.imitate(allTodos).map{ _ => { <div/> }}
 
   def todoListItem(todo: Todo): TaggedComponent[Option[TodoEvent], Todo] = {
     println(s"making new todo component for $todo") // DEBUG
@@ -272,15 +260,25 @@ object MhtmlTodo extends JSApp {
   )
 
   def updateState(currentTodos: List[Todo], evOpt: Option[TodoEvent]): List[Todo] = evOpt match {
-    case Some(AddEvent(newTodo)) => newTodo :: currentTodos
+    case Some(AddEvent(newTodo)) => {
+      println("DEBUG: AddEvent(newTodo)")
+      newTodo :: currentTodos
+    }
     case Some(RemovalEvent(rmTodo)) => currentTodos.filter(todo => todo == rmTodo)
     case Some(UpdateEvent(oldTodo, newTodo)) =>
       val listIndex = currentTodos.indexOf(oldTodo)
       if (listIndex > 0) {
+        println(s"DEBUG: newTodo is $newTodo")
         currentTodos.updated(listIndex, newTodo)
       }
-      else currentTodos
-    case None => currentTodos
+      else {
+        println("DEBUG: just returning currentTodos")
+        currentTodos
+      }
+    case None => {
+      println("DEBUG: just returning currentTodos (None)")
+      currentTodos
+    }
   }
 
   def focusInput(): Unit =
@@ -305,7 +303,8 @@ object MhtmlTodo extends JSApp {
 
   val todoapp: Node = {
     <div>
-      { todoListComponentsRunner }{ allTodosRunner }
+      <!-- { todoListComponentsRunner }{ allTodosRunner } -->
+      { allTodosRunner }
       <section class="todoapp">{ header.view }{ mainSection.view }{ footer.view }</section>
       <footer class="info">
         <p>Double-click to edit a todo</p>
