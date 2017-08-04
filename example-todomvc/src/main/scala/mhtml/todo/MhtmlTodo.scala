@@ -37,9 +37,9 @@ final case class RemovalEvent(todo: Todo) extends TodoEvent
 object MhtmlTodo extends JSApp {
   val allTodosProxy: Var[List[Todo]] = Var(Nil)
 
-  val all       = TodoList("All", "#/", allTodosProxy)
-  val active    = TodoList("Active", "#/active", allTodosProxy.map(_.filter(!_.completed)))
-  val completed = TodoList("Completed", "#/completed", allTodosProxy.map(_.filter(_.completed)))
+  val all       = TodoList("All", "#/", allTodosProxy.dropRepeats)
+  val active    = TodoList("Active", "#/active", allTodosProxy.map(_.filter(!_.completed)).dropRepeats)
+  val completed = TodoList("Completed", "#/completed", allTodosProxy.map(_.filter(_.completed)).dropRepeats)
   val todoLists = List(all, active, completed)
 
   val windowHash: Rx[String] = Rx(dom.window.location.hash).merge{
@@ -48,11 +48,11 @@ object MhtmlTodo extends JSApp {
       updatedHash := dom.window.location.hash
     }
     updatedHash
-  }
+  }.dropRepeats
 
   val currentTodoList: Rx[TodoList] = windowHash.map { hash =>
     todoLists.find(_.hash === hash).getOrElse(all)
-  }
+  }.dropRepeats
 
   val todoListComponentsProxy: Var[List[TaggedComponent[Option[TodoEvent], Todo]]] = Var(Nil)
   val todoListComponents: Rx[List[TaggedComponent[Option[TodoEvent], Todo]]] =
@@ -60,25 +60,25 @@ object MhtmlTodo extends JSApp {
       case (currentTodos: TodoList, currentComps: List[TaggedComponent[Option[TodoEvent], Todo]]) =>
         currentTodos.items.map(_.map{todo =>
           val idx = currentComps.indexWhere{cmp => cmp.tag == todo}
+          println(s"currentComps = ${currentComps}")
           println(s"comp index is $idx") // DEBUG
           if (idx >= 0) currentComps(idx)
           else todoListItem(todo)
         })
-    }.flatten
+    }.flatten.dropRepeats
 
-  val todoListComponentsRunner = todoListComponentsProxy
-    .imitate(todoListComponents).map(_ => { <div/> })
-  //todoListComponents.impure.foreach(ev => println(s"event from todoListComponents: $ev")) // DEBUG
+  val todoListComponentsRunner: Rx[Node] = todoListComponentsProxy
+    .imitate(todoListComponents).dropRepeats.map(_ => { <div/> })
 
   val todoListEvent: Rx[Option[TodoEvent]] = {
     val todoListModelsRx: Rx[List[Rx[Option[TodoEvent]]]] =
-      todoListComponents.map(compList => compList.map(comp => comp.model))
+      todoListComponents.map(compList => compList.map(comp => comp.model)).dropRepeats
     todoListModelsRx.flatMap(todoListModels =>
       todoListModels.foldRight[Rx[Option[TodoEvent]]](Rx(None))(
         (lastEv: Rx[Option[TodoEvent]], nextEv: Rx[Option[TodoEvent]]) => nextEv |+| lastEv
       )
     )
-  }
+  }.dropRepeats
 
   val header: Component[Option[AddEvent]] = {
     val newTodo = Var[Option[AddEvent]](None)
@@ -102,7 +102,7 @@ object MhtmlTodo extends JSApp {
                placeholder="What needs to be done?"
                onkeydown={onInputKeydown _}/>
       </header>
-    Component(headerNode, newTodo)
+    Component(headerNode, newTodo.dropRepeats)
   }
 
   val footer: Component[Option[RemovalEvent]] = {
@@ -124,15 +124,17 @@ object MhtmlTodo extends JSApp {
           Clear completed
         </button>
       </footer>
-    Component(footerNode, removeTodo)
+    Component(footerNode, removeTodo.dropRepeats)
   }
 
-  //todoListEvent.impure.foreach(ev => println(s"event from todoListEvent: $ev")) // DEBUG
+  val anyEvent: Rx[Option[TodoEvent]] =
+    (todoListEvent |+| footer.model |+| header.model).dropRepeats
 
-  val anyEvent: Rx[Option[TodoEvent]] = todoListEvent |+| footer.model |+| header.model
-
-  val allTodos: Rx[List[Todo]] = anyEvent.foldp(load()) { (last, ev) => updateState(last, ev) }
-  val allTodosRunner = allTodosProxy.imitate(allTodos).map{ _ => { <div/> }}
+  val allTodos: Rx[List[Todo]] = anyEvent.foldp(load()) {
+    (last, ev) => updateState(last, ev)
+  }.dropRepeats
+  val allTodosRunner: Rx[Node] = allTodosProxy.imitate(allTodos)
+    .dropRepeats.map{ _ => { <div/> }}
 
   def todoListItem(todo: Todo): TaggedComponent[Option[TodoEvent], Todo] = {
     println(s"making new todo component for $todo") // DEBUG
@@ -162,7 +164,7 @@ object MhtmlTodo extends JSApp {
     }
     def ignoreEvent(event: Event): Unit = ()
     def blurHandler: Rx[Event => Unit] =
-      suppressOnBlur.map(x => if (x) ignoreEvent else submit)
+      suppressOnBlur.map(x => if (x) ignoreEvent(_) else submit(_)).dropRepeats
     def onToggleCompleted(event: Event): Unit = {
       event.currentTarget match {
         case input: HTMLInputElement =>
@@ -199,11 +201,11 @@ object MhtmlTodo extends JSApp {
                value={ todo.title }
                onblur={ blurHandler }/>
       </li>
-    TaggedComponent(todoListElem, data, todo)
+    TaggedComponent(todoListElem, data.dropRepeats, todo)
   }
 
   val todoListElems: Rx[List[Node]] =
-    todoListComponents.map{tlcSeq => tlcSeq.map(comp => comp.view)}
+    todoListComponents.map{tlcSeq => tlcSeq.map(comp => comp.view)}.dropRepeats
 
   val mainSection: Component[List[UpdateEvent]] = {
     val todoUpdates = Var[List[UpdateEvent]](Nil)
@@ -236,7 +238,7 @@ object MhtmlTodo extends JSApp {
         <label for="toggle-all" checked={ checked }>Mark all as complete</label>
         <ul class="todo-list">{ todoListElems }</ul>
       </section>
-    Component(mainDiv, todoUpdates)
+    Component(mainDiv, todoUpdates.dropRepeats)
   }
 
 //  object Model {
@@ -303,7 +305,6 @@ object MhtmlTodo extends JSApp {
 
   val todoapp: Node = {
     <div>
-      <!-- { todoListComponentsRunner }{ allTodosRunner } -->
       { allTodosRunner }
       <section class="todoapp">{ header.view }{ mainSection.view }{ footer.view }</section>
       <footer class="info">
