@@ -373,4 +373,36 @@ class RxTests extends FunSuite {
     assert(sndList == List(-101, 1, 7))
     assert(source.isCold && sndProxy.isCold)
   }
+
+  test("imitate with contained definition") {
+    def isOdd(x: Int) = x % 2 == 1
+
+    var fstList: List[Int] = Nil
+    var sndList: List[Int] = Nil
+
+    val source = Var(0)
+    val sndProxy = Var(0)
+    val fst = source.merge(sndProxy.map(1.+))
+    val snd = {
+      val sndDef = fst.keepIf(isOdd)(-101)
+      sndProxy.imitate(sndDef)
+    }
+
+    assert(source.isCold && sndProxy.isCold)
+
+    val cc2 = fst.impure.foreach(n => fstList = fstList :+ n)
+    val cc3 = snd.impure.foreach(n => sndList = sndList :+ n)
+
+    source := 1
+    source := 6
+    source := 7
+
+    cc2.cancel
+    cc3.cancel
+
+    //TODO: check logic: this formulation permutes fstList
+    assert(fstList == List(0, -100, 2, 1, 6, 8, 7))
+    assert(sndList == List(-101, 1, 7))
+    assert(source.isCold && sndProxy.isCold)
+  }
 }
