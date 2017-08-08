@@ -98,18 +98,20 @@ object MhtmlTodo extends JSApp {
   todoListComponents.impure.foreach(tlc => println(s"tlc size = ${tlc.size}"))
 
 
-  //FIXME !!!!!! The main issue as to why we probably aren't having much luck is likely that we are mapping on the outter Rx: todoListComponents
   //FIXME: fold with flatmap is potentially problematic: https://github.com/OlivierBlanvillain/monadic-html
   val todoListEvent: Rx[Option[TodoEvent]] = {
     println("in todoListEvent definition") // DEBUG
     val todoListEventDef = todoListComponents.map(compList => compList.map(comp => comp.model))
-      .flatMap(todoListModels =>
+      .flatMap {todoListModels =>
+        println(s"inside flatmap for todoListEventDef: todoListModels size = ${todoListModels.size} ")
         todoListModels.foldRight[Rx[Option[TodoEvent]]](Rx(None))(
           (lastEv: Rx[Option[TodoEvent]], nextEv: Rx[Option[TodoEvent]]) => nextEv |+| lastEv
         )
-      ).dropRepeats.map { tle => println(s"got tlEvent $tle from todoListComponents (DEBUG)"); tle } // DEBUG
+      }.dropRepeats.map { tle => println(s"got tlEvent $tle from todoListComponents (DEBUG)"); tle } // DEBUG
     todoListEventProxy.imitate(todoListEventDef)
   }
+
+  todoListEvent.impure.foreach(tle => println(s"tle = $tle"))
 
   val header: Component[Option[AddEvent]] = {
     val newTodo = Var[Option[AddEvent]](None)
@@ -179,7 +181,6 @@ object MhtmlTodo extends JSApp {
     println(s"making new todo component for $todo") // DEBUG
     val removeTodo = Var[Option[RemovalEvent]](None)
     val updateTodo = Var[Option[UpdateEvent]](None)
-    updateTodo.foreach(ev => println(s"DEBUG: updateTodo $ev"))
     val suppressOnBlur = Var(false)
 
     def submit(event: Event) = {
@@ -235,6 +236,7 @@ object MhtmlTodo extends JSApp {
       s"$editing $completed"
     }
     val data: Rx[Option[TodoEvent]] = Semigroup[Rx[Option[TodoEvent]]].combine(removeTodo, updateTodo)
+    data.impure.foreach(ev => println(s"DEBUG: todoListItem event: $ev"))
     val todoListElem =
       <li class={css}>
         <div class="view">
