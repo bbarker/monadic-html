@@ -24,6 +24,31 @@ case class Component[D](view: Node, model: Rx[D]) extends AbstractComponent[D](v
   */
 case class TaggedComponent[D,T](view: Node, model: Rx[D], tag: T) extends AbstractComponent[D](view, model)
 
+/**
+  * Alternative to using TaggedComponent; tags are replaces by keys in a map. This is not a true
+  * list of components, but rahter a component that simulates a list of components.
+  * @param view
+  * @param model
+  * @param tag
+  * @tparam D
+  * @tparam T
+  */
+case class ComponentList[D,T](
+  view: Node,
+  store: Rx[Map[T,D]],
+  orderMaybe: Option[Ordering[T]]
+)
+  extends AbstractComponent[List[D]](
+    view,
+    store.map(storeNow =>
+      orderMaybe match {
+        case Some(order) =>
+          storeNow.keys.toList.sorted(order).map(key => storeNow(key))
+        case None => storeNow.values.toList
+      }
+    )
+  )
+
 case class Todo(title: String, completed: Boolean)
 
 case class TodoList(text: String, hash: String, items: Rx[List[Todo]])
@@ -35,6 +60,7 @@ final case class RemovalEvent(todo: Todo) extends TodoEvent
 
 
 object MhtmlTodo extends JSApp {
+  type Store = Map[Todo, Option[TodoEvent]]
   val allTodosProxy: Var[List[Todo]] = Var(Nil)
 
   val all = TodoList("All", "#/", allTodosProxy.dropRepeats)
@@ -54,30 +80,59 @@ object MhtmlTodo extends JSApp {
     todoLists.find(_.hash === hash).getOrElse(all)
   }.dropRepeats
 
-  type TLCmp = TaggedComponent[Option[TodoEvent], Todo]
+  //type TLCmp = TaggedComponent[Option[TodoEvent], Todo]
 
   val todoListEventProxy: Var[Option[TodoEvent]] = Var(None)
   //TODO: this is merge: consider merge on TODOs to go from N^2 to N ... otherwise this gets really slow
-  val todoListComponents: Rx[List[TLCmp]] = {
+  val todoListComponents: ComponentList[Option[TodoEvent], Todo] = {
+
     val todoListTodos: Rx[List[Todo]] = currentTodoList.map(tl => tl.items).flatten.dropRepeats
-    type TLCMonitors = Rx[(TodoList, List[Todo], Option[TodoEvent])]
-    val ctlTodosZipped: TLCMonitors =
-      for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy) yield (ctl, tlt, tle) //currentTodoList zip todoListTodos zip todoListEventProxy
-    ctlTodosZipped.foldp(Rx(List[TLCmp]())) {
-      case (tlCmps: Rx[List[TLCmp]], (currentTodoList: TodoList, currentTodos: List[Todo], ev: Option[TodoEvent])) =>
-        println(s"DEBUG: got event $ev in todoListComponents")
-        (tlCmps |@| currentTodoList.items).map {
-          case (currentComps: List[TLCmp], currentTodos: List[Todo]) =>
+    type TLCMonitors = (TodoList, List[Todo], Option[TodoEvent])
+    val ctlTodosZipped: Rx[TLCMonitors] =
+      for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy)
+        yield (ctl, tlt, tle)
+
+    val store: Rx[Store] = ctlTodosZipped.foldp(
+      Rx(Map[Todo, Option[TodoEvent]]())// Start with an empty collection
+    ) {
+      (storeNow: Rx[Store], tlcMonitors: TLCMonitors) =>
+        //FIXME: do we really need ev???
+        val (currentTodoList, currentTodos, ev) = tlcMonitors
+        (storeNow |@| currentTodoList.items).map {
+          (currentComps: Store, currentTodos: List[Todo]) =>
             currentTodos.map { todo =>
-              val idx = currentComps.indexWhere { cmp => cmp.tag == todo }
               println(s"currentComps size is ${currentComps.size}")
-              println(s"comp index is $idx") // DEBUG
-              if (idx >= 0) currentComps(idx)
-              else todoListItem(todo)
-            }
+              currentComps.get(todo) match {
+                case Some(todoComp) => todo -> todoComp
+                case None => todo -> todoListItem(todo)
+              }
+            }.toMap
         }
     }.flatten.dropRepeats.map{tlc => println(s"got todoListComponents change (predrop)"); tlc}.map{tlc => println(s"got todoListComponents change"); tlc} // DEBUG
+
+    ComponentList(<div/>, store)
   }
+
+//  val todoListComponents: Rx[List[TLCmp]] = {
+//    val todoListTodos: Rx[List[Todo]] = currentTodoList.map(tl => tl.items).flatten.dropRepeats
+//    type TLCMonitors = Rx[(TodoList, List[Todo], Option[TodoEvent])]
+//    val ctlTodosZipped: TLCMonitors =
+//      for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy) yield (ctl, tlt, tle) //currentTodoList zip todoListTodos zip todoListEventProxy
+//    ctlTodosZipped.foldp(Rx(List[TLCmp]())) {
+//      case (tlCmps: Rx[List[TLCmp]], (currentTodoList: TodoList, currentTodos: List[Todo], ev: Option[TodoEvent])) =>
+//        println(s"DEBUG: got event $ev in todoListComponents")
+//        (tlCmps |@| currentTodoList.items).map {
+//          case (currentComps: List[TLCmp], currentTodos: List[Todo]) =>
+//            currentTodos.map { todo =>
+//              val idx = currentComps.indexWhere { cmp => cmp.tag == todo }
+//              println(s"currentComps size is ${currentComps.size}")
+//              println(s"comp index is $idx") // DEBUG
+//              if (idx >= 0) currentComps(idx)
+//              else todoListItem(todo)
+//            }
+//        }
+//    }.flatten.dropRepeats.map{tlc => println(s"got todoListComponents change (predrop)"); tlc}.map{tlc => println(s"got todoListComponents change"); tlc} // DEBUG
+//  }
 
 //  val todoListComponents: Rx[List[TLCmp]] =
 //  currentTodoList.foldp(Rx(List[TLCmp]())){(tlCmps: Rx[List[TLCmp]], currentTodoList: TodoList) =>
@@ -177,7 +232,7 @@ object MhtmlTodo extends JSApp {
       <div/>
   }}
 
-  def todoListItem(todo: Todo): TaggedComponent[Option[TodoEvent], Todo] = {
+  def todoListItem(todo: Todo): Component[Option[TodoEvent]] = {
     println(s"making new todo component for $todo") // DEBUG
     val removeTodo = Var[Option[RemovalEvent]](None)
     val updateTodo = Var[Option[UpdateEvent]](None)
@@ -255,7 +310,7 @@ object MhtmlTodo extends JSApp {
                value={todo.title}
                onblur={blurHandler}/>
       </li>
-    TaggedComponent(todoListElem, data.dropRepeats.map{ev => s"${todo.title} got event: ${ev}"; ev}, todo)
+    Component(todoListElem, data.dropRepeats.map{ev => s"${todo.title} got event: ${ev}"; ev})
   }
 
   val todoListElems: Rx[List[Node]] =
