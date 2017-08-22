@@ -1,7 +1,7 @@
 package mhtml.todo
 
 import scala.scalajs.js.JSApp
-import scala.xml.Node
+import scala.xml.{Group, Node}
 import scala.collection.breakOut
 import cats.implicits._
 import cats.kernel.Semigroup
@@ -34,20 +34,22 @@ case class TaggedComponent[D,T](view: Node, model: Rx[D], tag: T) extends Abstra
   * @tparam T
   */
 case class ComponentList[D,T](
-  view: Node,
+  view: Rx[Node],
   store: Rx[Map[T,D]],
-  orderMaybe: Option[Ordering[T]]
+  orderMaybe: Option[Ordering[T]] = None
 )
-  extends AbstractComponent[List[D]](
-    view,
-    store.map(storeNow =>
-      orderMaybe match {
-        case Some(order) =>
-          storeNow.keys.toList.sorted(order).map(key => storeNow(key))
-        case None => storeNow.values.toList
-      }
-    )
-  )
+// TODO: Ideally, views in components would be the union of Rx[Node] and Node;
+// TODO: currently we can extend AbstractComponent because of this
+//  extends AbstractComponent[List[D]](
+//    view,
+//    store.map(storeNow =>
+//      orderMaybe match {
+//        case Some(order) =>
+//          storeNow.keys.toList.sorted(order).map(key => storeNow(key))
+//        case None => storeNow.values.toList
+//      }
+//    )
+//  )
 
 case class Todo(title: String, completed: Boolean)
 
@@ -60,7 +62,8 @@ final case class RemovalEvent(todo: Todo) extends TodoEvent
 
 
 object MhtmlTodo extends JSApp {
-  type Store = Map[Todo, Option[TodoEvent]]
+  type TodoItem = Component[Option[TodoEvent]]
+  type Store = Map[Todo, TodoItem]
   val allTodosProxy: Var[List[Todo]] = Var(Nil)
 
   val all = TodoList("All", "#/", allTodosProxy.dropRepeats)
@@ -80,21 +83,22 @@ object MhtmlTodo extends JSApp {
     todoLists.find(_.hash === hash).getOrElse(all)
   }.dropRepeats
 
-  //type TLCmp = TaggedComponent[Option[TodoEvent], Todo]
-
   val todoListEventProxy: Var[Option[TodoEvent]] = Var(None)
-  //TODO: this is merge: consider merge on TODOs to go from N^2 to N ... otherwise this gets really slow
-  val todoListComponents: ComponentList[Option[TodoEvent], Todo] = {
+  val todoListComponents: ComponentList[TodoItem, Todo] = {
 
     val todoListTodos: Rx[List[Todo]] = currentTodoList.map(tl => tl.items).flatten.dropRepeats
     type TLCMonitors = (TodoList, List[Todo], Option[TodoEvent])
     val ctlTodosZipped: Rx[TLCMonitors] =
-      for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy)
-        yield (ctl, tlt, tle)
+      (for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy)
+        yield {
+          //DEBUG
+          println(s"yield ctl = $ctl}")
+          println(s"yield tlt = $tlt}")
+          println(s"yield tle = $tle}")
+          (ctl, tlt, tle)
+        }).dropRepeats
 
-    val store: Rx[Store] = ctlTodosZipped.foldp(
-      Rx(Map[Todo, Option[TodoEvent]]())// Start with an empty collection
-    ) {
+    val store: Rx[Store] = ctlTodosZipped.foldp[Rx[Store]]( Rx(Map()) ) {
       (storeNow: Rx[Store], tlcMonitors: TLCMonitors) =>
         //FIXME: do we really need ev???
         val (currentTodoList, currentTodos, ev) = tlcMonitors
@@ -104,59 +108,27 @@ object MhtmlTodo extends JSApp {
               println(s"currentComps size is ${currentComps.size}")
               currentComps.get(todo) match {
                 case Some(todoComp) => todo -> todoComp
-                case None => todo -> todoListItem(todo)
+                case None => todo -> todoItem(todo)
               }
-            }.toMap
-        }
+            }
+        }.map[Store]{mapList: List[(Todo, TodoItem)] => mapList.toMap[Todo, TodoItem]}
     }.flatten.dropRepeats.map{tlc => println(s"got todoListComponents change (predrop)"); tlc}.map{tlc => println(s"got todoListComponents change"); tlc} // DEBUG
 
-    ComponentList(<div/>, store)
+    val view: Rx[Node] = store.map{ compMap: Store =>
+      Group(compMap.values.map(item => item.view) (breakOut) )
+    }.dropRepeats
+
+    ComponentList(view, store)
   }
 
-//  val todoListComponents: Rx[List[TLCmp]] = {
-//    val todoListTodos: Rx[List[Todo]] = currentTodoList.map(tl => tl.items).flatten.dropRepeats
-//    type TLCMonitors = Rx[(TodoList, List[Todo], Option[TodoEvent])]
-//    val ctlTodosZipped: TLCMonitors =
-//      for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy) yield (ctl, tlt, tle) //currentTodoList zip todoListTodos zip todoListEventProxy
-//    ctlTodosZipped.foldp(Rx(List[TLCmp]())) {
-//      case (tlCmps: Rx[List[TLCmp]], (currentTodoList: TodoList, currentTodos: List[Todo], ev: Option[TodoEvent])) =>
-//        println(s"DEBUG: got event $ev in todoListComponents")
-//        (tlCmps |@| currentTodoList.items).map {
-//          case (currentComps: List[TLCmp], currentTodos: List[Todo]) =>
-//            currentTodos.map { todo =>
-//              val idx = currentComps.indexWhere { cmp => cmp.tag == todo }
-//              println(s"currentComps size is ${currentComps.size}")
-//              println(s"comp index is $idx") // DEBUG
-//              if (idx >= 0) currentComps(idx)
-//              else todoListItem(todo)
-//            }
-//        }
-//    }.flatten.dropRepeats.map{tlc => println(s"got todoListComponents change (predrop)"); tlc}.map{tlc => println(s"got todoListComponents change"); tlc} // DEBUG
-//  }
-
-//  val todoListComponents: Rx[List[TLCmp]] =
-//  currentTodoList.foldp(Rx(List[TLCmp]())){(tlCmps: Rx[List[TLCmp]], currentTodoList: TodoList) =>
-//    (tlCmps |@| currentTodoList.items).map {
-//      case (currentComps: List[TLCmp], currentTodos: List[Todo]) =>
-//        currentTodos.map{ todo =>
-//          val idx = currentComps.indexWhere { cmp => cmp.tag == todo }
-//          println(s"currentComps size is ${currentComps.size}")
-//          println(s"comp index is $idx") // DEBUG
-//          if (idx >= 0) currentComps(idx)
-//          else todoListItem(todo)
-//        }
-//    }
-//  }.flatten.dropRepeats
-
-
   //DEBUG
-  todoListComponents.impure.foreach(tlc => println(s"tlc size = ${tlc.size}"))
+  todoListComponents.store.impure.foreach(tlc => println(s"tlc size = ${tlc.size}"))
 
 
   //FIXME: fold with flatmap is potentially problematic: https://github.com/OlivierBlanvillain/monadic-html
   val todoListEvent: Rx[Option[TodoEvent]] = {
     println("in todoListEvent definition") // DEBUG
-    val todoListEventDef = todoListComponents.map(compList => compList.map(comp => comp.model))
+    val todoListEventDef = todoListComponents.store.map(comps => comps.values.map(comp => comp.model))
       .flatMap {todoListModels =>
         println(s"inside flatmap for todoListEventDef: todoListModels size = ${todoListModels.size} ")
         todoListModels.foldRight[Rx[Option[TodoEvent]]](Rx(None))(
@@ -232,7 +204,7 @@ object MhtmlTodo extends JSApp {
       <div/>
   }}
 
-  def todoListItem(todo: Todo): Component[Option[TodoEvent]] = {
+  def todoItem(todo: Todo): TodoItem = {
     println(s"making new todo component for $todo") // DEBUG
     val removeTodo = Var[Option[RemovalEvent]](None)
     val updateTodo = Var[Option[UpdateEvent]](None)
@@ -313,9 +285,6 @@ object MhtmlTodo extends JSApp {
     Component(todoListElem, data.dropRepeats.map{ev => s"${todo.title} got event: ${ev}"; ev})
   }
 
-  val todoListElems: Rx[List[Node]] =
-    todoListComponents.map { tlcSeq => tlcSeq.map(comp => comp.view) }.dropRepeats
-
   val mainSection: Component[List[UpdateEvent]] = {
     val todoUpdates = Var[List[UpdateEvent]](Nil)
 
@@ -348,13 +317,12 @@ object MhtmlTodo extends JSApp {
                checked={checked}/>
         <label for="toggle-all" checked={checked}>Mark all as complete</label>
         <ul class="todo-list">
-          {todoListElems}
+          {todoListComponents.view}
         </ul>
       </section>
     Component(mainDiv, todoUpdates.dropRepeats)
   }
 
-  //  object Model {
   val LocalStorageName = "todo.mhtml"
 
   def load(): List[Todo] =
@@ -377,26 +345,26 @@ object MhtmlTodo extends JSApp {
   def updateState(currentTodos: List[Todo], evOpt: Option[TodoEvent]): List[Todo] = {
     println(s"running updateState with event $evOpt on $currentTodos")
     evOpt match {
-    case Some(AddEvent(newTodo)) =>
-      println("DEBUG: AddEvent(newTodo)")
-      newTodo :: currentTodos
-    case Some(RemovalEvent(rmTodo)) => currentTodos.filter(todo => todo == rmTodo)
-    case Some(UpdateEvent(oldTodo, newTodo)) =>
-      val listIndex = currentTodos.indexOf(oldTodo)
-      if (listIndex > 0) {
-        println(s"DEBUG: newTodo is $newTodo")
-        currentTodos.updated(listIndex, newTodo)
-      }
-      else {
-        println("DEBUG: just returning currentTodos")
+      case Some(AddEvent(newTodo)) =>
+        println("DEBUG: AddEvent(newTodo)")
+        newTodo :: currentTodos
+      case Some(RemovalEvent(rmTodo)) => currentTodos.filter(todo => todo == rmTodo)
+      case Some(UpdateEvent(oldTodo, newTodo)) =>
+        val listIndex = currentTodos.indexOf(oldTodo)
+        if (listIndex > 0) {
+          println(s"DEBUG: newTodo is $newTodo")
+          currentTodos.updated(listIndex, newTodo)
+        }
+        else {
+          println("DEBUG: just returning currentTodos")
+          currentTodos
+        }
+      case None => {
+        println("DEBUG: just returning currentTodos (None)")
         currentTodos
       }
-    case None => {
-      println("DEBUG: just returning currentTodos (None)")
-      currentTodos
     }
   }
-}
 
   def focusInput(): Unit =
     dom.document.getElementById("editInput") match {
