@@ -5,6 +5,7 @@ import scala.xml.{Group, Node}
 import scala.collection.breakOut
 import cats.implicits._
 import cats.kernel.Semigroup
+import cats.Monoid
 import mhtml._
 import mhtml.implicits.cats._
 import org.scalajs.dom
@@ -124,17 +125,21 @@ object MhtmlTodo extends JSApp {
   }
 
   //FIXME: fold with flatmap is potentially problematic: https://github.com/OlivierBlanvillain/monadic-html
-  val todoListEvent: Rx[Option[TodoEvent]] = {
-    println("in todoListEvent definition") // DEBUG
-    val todoListEventDef = todoListComponents.store.map(comps => comps.values.map(comp => comp.model))
-      .flatMap {todoListModels =>
-        println(s"inside flatmap for todoListEventDef: todoListModels size = ${todoListModels.size} ")
-        todoListModels.foldRight[Rx[Option[TodoEvent]]](Rx(None))(
-          (lastEv: Rx[Option[TodoEvent]], nextEv: Rx[Option[TodoEvent]]) => nextEv |+| lastEv
-        )
-      }.dropRepeats.map { tle => println(s"got tlEvent $tle from todoListComponents (DEBUG)"); tle } // DEBUG
-    todoListEventProxy.imitate(todoListEventDef)
-  }
+//  val todoListEvent: Rx[Option[TodoEvent]] = {
+//    println("in todoListEvent definition") // DEBUG
+//    val todoListEventDef = todoListComponents.store.map(comps => comps.values.map(comp => comp.model))
+//      .flatMap {todoListModels =>
+//        println(s"inside flatmap for todoListEventDef: todoListModels size = ${todoListModels.size} ")
+//        todoListModels.foldRight[Rx[Option[TodoEvent]]](Rx(None))(
+//          (lastEv: Rx[Option[TodoEvent]], nextEv: Rx[Option[TodoEvent]]) => nextEv |+| lastEv
+//        )
+//      }.dropRepeats.map { tle => println(s"got tlEvent $tle from todoListComponents (DEBUG)"); tle } // DEBUG
+//    todoListEventProxy.imitate(todoListEventDef)
+//  }
+
+  val todoListEvent: Rx[Option[TodoEvent]]=  todoListComponents.store.map { comps =>
+    Monoid.combineAll(comps.values.map(comp => comp.model))
+  }.flatten
 
   val header: Component[Option[AddEvent]] = {
     val newTodo = Var[Option[AddEvent]](None)
