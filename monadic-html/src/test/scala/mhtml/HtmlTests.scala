@@ -600,13 +600,8 @@ class HtmlTests extends FunSuite {
       ).dropRepeats
 
       def todoItem(todo: Todo): TodoItem = {
-        println(s"making new todo component for $todo") // DEBUG
-
         val data: Rx[Option[TodoEvent]] = Rx[Option[TodoEvent]](null)
-        val todoListElem =
-          <li>
-            <div class="view"></div>
-          </li>
+        val todoListElem = <li> </li>
         Component(todoListElem, data.dropRepeats.map { ev => s"${todo.title} got event: ${ev}"; ev })
       }
 
@@ -639,29 +634,7 @@ class HtmlTests extends FunSuite {
                                changes: List[TodoEvent]
                              )
 
-      def updateState(currentTodos: List[Todo], evOpt: Option[TodoEvent]): List[Todo] = {
-        println(s"running updateState with event $evOpt on $currentTodos")
-        evOpt match {
-          case Some(AddEvent(newTodo)) =>
-            println("DEBUG: AddEvent(newTodo)")
-            newTodo :: currentTodos
-          case Some(RemovalEvent(rmTodo)) => currentTodos.filter(todo => todo == rmTodo)
-          case Some(UpdateEvent(oldTodo, newTodo)) =>
-            val listIndex = currentTodos.indexOf(oldTodo)
-            if (listIndex > 0) {
-              println(s"DEBUG: newTodo is $newTodo")
-              currentTodos.updated(listIndex, newTodo)
-            }
-            else {
-              println("DEBUG: just returning currentTodos")
-              currentTodos
-            }
-          case None => {
-            println("DEBUG: just returning currentTodos (None)")
-            currentTodos
-          }
-        }
-      }
+      def updateState(currentTodos: List[Todo], evOpt: Option[TodoEvent]): List[Todo] = currentTodos
 
       val todoAppView: xml.Node = {
         <div>
