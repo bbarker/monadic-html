@@ -373,4 +373,31 @@ class RxTests extends FunSuite {
     assert(sndList == List(-101, 1, 7))
     assert(source.isCold && sndProxy.isCold)
   }
+
+  test("imitate-noredundant") {
+
+    var fireCount: Int = 0
+    var fstList: List[Int] = List (0, 1, 2, 3)
+    var sndList: List[Int] = Nil
+
+    val source = Var(0)
+    val proxy: Rx[Int] = source.map{x => fireCount += 1; x}
+    val imitator: Rx[Int] = Var(0).imitate(proxy)
+
+
+    assert(source.isCold)
+
+    val cc1 = imitator.impure.foreach(ii => sndList = sndList :+ ii)
+
+    fstList foreach {ii => source := ii}
+
+    cc1.cancel
+
+    assert(0 :: fstList == sndList)
+    assert(fireCount == 1 + fstList.size)
+    assert(source.isCold)
+
+  }
+
+
 }
