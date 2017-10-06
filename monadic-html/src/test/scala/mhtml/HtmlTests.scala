@@ -634,13 +634,9 @@ class HtmlTests extends FunSuite {
       val anyEvent: Rx[Option[TodoEvent]] =
         (todoListEvent |+| footer.model |+| header.model).dropRepeats
 
-      val allTodos: Rx[List[Todo]] = anyEvent.foldp(List[Todo]()) {
-        (last, ev) => updateState(last, ev)
-      }.dropRepeats
-//      val allTodosRunner: Rx[xml.Node] = allTodosProxy.imitate(allTodos)
-//        .dropRepeats.map { _ => {
-//          <div/>
-//      }}
+      val allTodos: Rx[List[Todo]] = allTodosProxy.imitate(
+        anyEvent.foldp(List[Todo]()) { (last, ev) => updateState(last, ev)}.dropRepeats
+      ).dropRepeats
 
       def todoItem(todo: Todo): TodoItem = {
         println(s"making new todo component for $todo") // DEBUG
