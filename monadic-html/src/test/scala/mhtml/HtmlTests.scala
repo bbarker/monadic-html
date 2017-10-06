@@ -545,15 +545,14 @@ class HtmlTests extends FunSuite {
       val todoListComponents: ComponentList[TodoItem, Todo] = {
 
         val todoListTodos: Rx[List[Todo]] = currentTodoList.map(tl => tl.items).flatten.dropRepeats
-        type TLCMonitors = (TodoList, List[Todo], Option[TodoEvent])
+        type TLCMonitors = (TodoList, List[Todo])
         val ctlTodosZipped: Rx[TLCMonitors] =
           (for (ctl <- currentTodoList; tlt <- todoListTodos; tle <- todoListEventProxy)
             yield {
               //DEBUG
               println(s"yield ctl = $ctl}")
               println(s"yield tlt = $tlt}")
-              println(s"yield tle = $tle}")
-              (ctl, tlt, tle)
+              (ctl, tlt)
             }).dropRepeats.map { tclm => // DEBUG
 
             println(tclm)
@@ -564,7 +563,7 @@ class HtmlTests extends FunSuite {
         val store: Rx[Store] = ctlTodosZipped.foldp[Rx[Store]](Rx(Map())) {
           (storeNow: Rx[Store], tlcMonitors: TLCMonitors) =>
             //FIXME: do we really need ev???
-            val (currentTodoList, currentTodos, ev) = tlcMonitors
+            val (currentTodoList, currentTodos) = tlcMonitors
             (storeNow |@| currentTodoList.items).map {
               (currentComps: Store, currentTodos: List[Todo]) =>
                 currentTodos.map { todo =>
@@ -638,11 +637,10 @@ class HtmlTests extends FunSuite {
       val allTodos: Rx[List[Todo]] = anyEvent.foldp(List[Todo]()) {
         (last, ev) => updateState(last, ev)
       }.dropRepeats
-      val allTodosRunner: Rx[xml.Node] = allTodosProxy.imitate(allTodos)
-        .dropRepeats.map { _ => {
-          <div/>
-      }
-      }
+//      val allTodosRunner: Rx[xml.Node] = allTodosProxy.imitate(allTodos)
+//        .dropRepeats.map { _ => {
+//          <div/>
+//      }}
 
       def todoItem(todo: Todo): TodoItem = {
         println(s"making new todo component for $todo") // DEBUG
@@ -814,8 +812,8 @@ class HtmlTests extends FunSuite {
       val todoAppView: xml.Node = {
         println("hello from tododapp")
         <div>
-          {allTodosRunner}<section class="todoapp">
-          {header.view}{mainSection.view}{footer.view}
+          <section class="todoapp">
+          {mainSection.view}
         </section>
           <footer class="info">
             <p>Double-click to edit a todo</p>
