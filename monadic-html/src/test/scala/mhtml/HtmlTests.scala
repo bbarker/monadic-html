@@ -615,7 +615,7 @@ class HtmlTests extends FunSuite {
         val mainDiv =
           <section class="main" style:display={display}>
             <ul class="todo-list">
-              {todoListComponents.view}
+              {/*todoListComponents.view */ "hi"}
             </ul>
           </section>
         Component(mainDiv, todoUpdates.dropRepeats)
