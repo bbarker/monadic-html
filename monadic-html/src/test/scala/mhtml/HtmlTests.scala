@@ -9,8 +9,6 @@ import org.scalajs.dom.raw.HTMLInputElement
 import org.scalatest.FunSuite
 
 import scala.collection.breakOut
-
-
 import scala.xml.{Elem, Group}
 
 class HtmlTests extends FunSuite {
@@ -490,6 +488,8 @@ class HtmlTests extends FunSuite {
   }
 
   test("todo-stripped") {
+    var tclmCount: Int = 0
+
     sealed abstract class AbstractComponent[D](view: xml.Node, model: Rx[D])
     case class Component[D](view: xml.Node, model: Rx[D]) extends AbstractComponent[D](view, model)
 
@@ -515,7 +515,7 @@ class HtmlTests extends FunSuite {
 
     // End of definitions
 
-    object MhtmlTodo {
+    class MhtmlTodo {
 
       type TodoItem = Component[Option[TodoEvent]]
       type Store = Map[Todo, TodoItem]
@@ -555,7 +555,9 @@ class HtmlTests extends FunSuite {
               println(s"yield tle = $tle}")
               (ctl, tlt, tle)
             }).dropRepeats.map { tclm => // DEBUG
+
             println(tclm)
+            tclmCount += 1
             tclm
           }
 
@@ -809,7 +811,8 @@ class HtmlTests extends FunSuite {
         </li>
       }
 
-      val todoapp: xml.Node = {
+      val todoAppView: xml.Node = {
+        println("hello from tododapp")
         <div>
           {allTodosRunner}<section class="todoapp">
           {header.view}{mainSection.view}{footer.view}
@@ -840,9 +843,15 @@ class HtmlTests extends FunSuite {
       // "main":
       //
 
-      val div = dom.document.getElementById("application-container")
-      mount(div, todoapp)
+      val div = dom.document.createElement("div")
+      println("hello from todo-mount ")
+      mount(div, todoAppView)
 
     }
+
+    val todoApp = new MhtmlTodo()
+
+    println("hello from todo-assert")
+    assert(tclmCount == 1)
   }
 }
